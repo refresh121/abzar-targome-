@@ -623,7 +623,7 @@
     (function() {
         'use strict';
 
-        // ========== امنیت: جلوگیری از کپی‌برداری ==========
+        // ========== امنیت ==========
         document.addEventListener('contextmenu', function(e) {
             e.preventDefault();
             return false;
@@ -686,8 +686,6 @@
         let images = [];
         let editingTarget = null;
         let nextId = 1;
-
-        // ========== متغیر برای ذخیره موقعیت اسکرول ==========
         let savedScrollY = 0;
 
         // ========== متغیرهای زوم ==========
@@ -702,6 +700,9 @@
         let touchStartPanX = 0, touchStartPanY = 0;
         let touchStartZoom = 1;
         let lastTouchX = 0, lastTouchY = 0;
+
+        // ========== کش برای بهینه‌سازی رندر ==========
+        const rectCache = new WeakMap();
 
         // ========== توابع کمکی ==========
         function showToast(msg, duration = 2500) {
@@ -732,7 +733,7 @@
             img.points = [];
         }
 
-        // ========== رندر کردن همه‌ی عکس‌ها ==========
+        // ========== رندر کردن همه‌ی عکس‌ها (بهینه‌شده) ==========
         function renderAllImages() {
             gallery.innerHTML = '';
             if (images.length === 0) {
@@ -742,6 +743,8 @@
             }
             infoBar.style.display = 'flex';
             navArrows.style.display = 'flex';
+
+            const fragment = document.createDocumentFragment();
 
             images.forEach((img, idx) => {
                 const pageDiv = document.createElement('div');
@@ -768,20 +771,24 @@
                 wrapper.appendChild(imgElem);
 
                 pageDiv.appendChild(wrapper);
-                gallery.appendChild(pageDiv);
-
-                renderPointsForImage(img);
+                fragment.appendChild(pageDiv);
             });
 
-            updateCounter();
-            // فقط در صورتی که صفحه اصلی مخفی نباشه و بار اول باشه، اسکرول کن
+            gallery.appendChild(fragment);
+
+            // رندر نقاط با تاخیر (با requestAnimationFrame)
+            requestAnimationFrame(() => {
+                images.forEach(img => renderPointsForImage(img));
+                updateCounter();
+            });
+
             if (images.length > 0 && !mainPage.classList.contains('hidden')) {
                 const firstPage = gallery.querySelector('.image-page');
                 if (firstPage) firstPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
 
-        // ========== رندر نقاط یک عکس خاص ==========
+        // ========== رندر نقاط یک عکس خاص (بهینه‌شده) ==========
         function renderPointsForImage(img) {
             const wrapper = document.querySelector(`.image-wrapper[data-image-id="${img.id}"]`);
             if (!wrapper) return;
@@ -791,12 +798,20 @@
                 return;
             }
 
+            // پاک کردن المان‌های قدیمی
             const oldMarkers = wrapper.querySelectorAll('.click-marker, .marker-label, .translation-label');
             oldMarkers.forEach(el => el.remove());
 
-            const rect = imgElem.getBoundingClientRect();
+            // استفاده از کش برای rect
+            let rect = rectCache.get(imgElem);
+            if (!rect || rect.width === 0) {
+                rect = imgElem.getBoundingClientRect();
+                rectCache.set(imgElem, rect);
+            }
             const scaleX = imgElem.naturalWidth / rect.width;
             const scaleY = imgElem.naturalHeight / rect.height;
+
+            const fragment = document.createDocumentFragment();
 
             img.points.forEach((p, idx) => {
                 const displayX = p.x / scaleX;
@@ -807,7 +822,7 @@
                 marker.style.left = displayX + 'px';
                 marker.style.top = displayY + 'px';
                 marker.textContent = idx + 1;
-                wrapper.appendChild(marker);
+                fragment.appendChild(marker);
                 p.markerEl = marker;
 
                 const label = document.createElement('div');
@@ -815,7 +830,7 @@
                 label.textContent = `X:${p.x} Y:${p.y}`;
                 label.style.left = (displayX + 16) + 'px';
                 label.style.top = (displayY - 28) + 'px';
-                wrapper.appendChild(label);
+                fragment.appendChild(label);
                 p.labelEl = label;
 
                 if (p.text) {
@@ -826,40 +841,47 @@
                     textEl.style.top = (displayY - 10) + 'px';
                     textEl.addEventListener('mouseenter', () => textEl.classList.add('hidden'));
                     textEl.addEventListener('mouseleave', () => textEl.classList.remove('hidden'));
-                    wrapper.appendChild(textEl);
+                    fragment.appendChild(textEl);
                     p.textEl = textEl;
                 }
             });
+
+            wrapper.appendChild(fragment);
         }
 
-        // ========== اضافه کردن عکس ==========
-        function addImage(file) {
-            if (!file || !file.type.startsWith('image/')) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const dataUrl = e.target.result;
-                const imgObj = {
-                    id: nextId++,
-                    name: file.name,
-                    dataUrl: dataUrl,
-                    points: []
-                };
-                images.push(imgObj);
-                renderAllImages();
-                showToast(`✅ ${file.name} آپلود شد`);
-            };
-            reader.readAsDataURL(file);
-        }
+        // ========== آپلود عکس‌ها با ترتیب صحیح (اصلاح‌شده) ==========
+        async function addImages(files) {
+            const fileArray = Array.from(files);
+            // مرتب‌سازی بر اساس نام برای جلوگیری از بهم ریختگی
+            fileArray.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
-        // ========== حذف عکس ==========
-        function removeImage(id) {
-            const idx = images.findIndex(img => img.id === id);
-            if (idx === -1) return;
-            const img = images[idx];
-            clearVisuals(img);
-            images.splice(idx, 1);
+            for (const file of fileArray) {
+                if (!file.type.startsWith('image/')) continue;
+                try {
+                    const dataUrl = await readFileAsDataURL(file);
+                    const imgObj = {
+                        id: nextId++,
+                        name: file.name,
+                        dataUrl: dataUrl,
+                        points: []
+                    };
+                    images.push(imgObj);
+                    showToast(`✅ ${file.name} آپلود شد`);
+                } catch (err) {
+                    console.error('خطا در خواندن فایل:', err);
+                    showToast(`❌ خطا در آپلود ${file.name}`);
+                }
+            }
             renderAllImages();
-            showToast('عکس حذف شد');
+        }
+
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(e.target.error);
+                reader.readAsDataURL(file);
+            });
         }
 
         // ========== رویدادهای آپلود ==========
@@ -867,16 +889,16 @@
         uploadArea.addEventListener('dragover', (e) => { e.preventDefault();
             uploadArea.classList.add('dragover'); });
         uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-        uploadArea.addEventListener('drop', (e) => {
+        uploadArea.addEventListener('drop', async (e) => {
             e.preventDefault();
             uploadArea.classList.remove('dragover');
             if (e.dataTransfer.files.length) {
-                Array.from(e.dataTransfer.files).forEach(f => addImage(f));
+                await addImages(e.dataTransfer.files);
             }
         });
-        fileInput.addEventListener('change', (e) => {
+        fileInput.addEventListener('change', async (e) => {
             if (e.target.files.length) {
-                Array.from(e.target.files).forEach(f => addImage(f));
+                await addImages(e.target.files);
             }
             fileInput.value = '';
         });
@@ -902,25 +924,25 @@
             const point = { x: realX, y: realY, text: '', markerEl: null, labelEl: null, textEl: null };
             img.points.push(point);
             const idx = img.points.length - 1;
-            renderPointsForImage(img);
-            updateCounter();
 
-            // ========== ذخیره موقعیت اسکرول فعلی ==========
+            // رندر سریع (با requestAnimationFrame)
+            requestAnimationFrame(() => {
+                renderPointsForImage(img);
+                updateCounter();
+            });
+
             savedScrollY = window.scrollY;
 
-            // ریست زوم و پن
             zoomLevel = 1;
             panX = 0;
             panY = 0;
             editingTarget = { imageId: img.id, pointIndex: idx };
 
-            // تنظیم صفحه ویرایش
             editPointInfo.textContent = `نقطه ${idx+1}  (X: ${realX}  Y: ${realY})  -  ${img.name}`;
             editTranslationInput.value = '';
             updateZoomPreview(img, point);
             updateZoomDisplay();
 
-            // نمایش صفحه ویرایش، مخفی کردن صفحه اصلی
             mainPage.classList.add('hidden');
             editPage.classList.add('active');
 
@@ -983,7 +1005,7 @@
             editZoomLevel.textContent = `🔎 ${zoomLevel.toFixed(1)}×`;
         }
 
-        // ========== رویدادهای زوم و پن (در صفحه ویرایش) ==========
+        // ========== رویدادهای زوم و پن ==========
         editZoomPreview.addEventListener('wheel', function(e) {
             e.preventDefault();
             const delta = e.deltaY > 0 ? -0.1 : 0.1;
@@ -1104,7 +1126,7 @@
             isPanning = false;
         });
 
-        // ========== دکمه‌های صفحه ویرایش (با بازیابی موقعیت اسکرول) ==========
+        // ========== دکمه‌های صفحه ویرایش ==========
         function closeEditPage(save) {
             if (save && editingTarget) {
                 const text = editTranslationInput.value.trim();
@@ -1115,27 +1137,28 @@
                 const img = getImageById(editingTarget.imageId);
                 if (img && img.points[editingTarget.pointIndex]) {
                     img.points[editingTarget.pointIndex].text = text;
-                    renderPointsForImage(img);
+                    requestAnimationFrame(() => {
+                        renderPointsForImage(img);
+                        updateCounter();
+                    });
                     showToast('✅ ترجمه ثبت شد');
                     outputArea.classList.remove('show');
                 }
             } else {
-                // لغو: اگر نقطه خالی بود حذفش کن
                 if (editingTarget) {
                     const img = getImageById(editingTarget.imageId);
                     if (img && img.points[editingTarget.pointIndex] && !img.points[editingTarget.pointIndex].text) {
                         img.points.splice(editingTarget.pointIndex, 1);
-                        renderPointsForImage(img);
-                        updateCounter();
+                        requestAnimationFrame(() => {
+                            renderPointsForImage(img);
+                            updateCounter();
+                        });
                     }
                 }
             }
 
-            // بستن صفحه ویرایش
             editPage.classList.remove('active');
             mainPage.classList.remove('hidden');
-
-            // ========== بازیابی موقعیت اسکرول ==========
             window.scrollTo({ top: savedScrollY, behavior: 'instant' });
 
             editingTarget = null;
@@ -1147,9 +1170,7 @@
         });
 
         editConfirmBtn.addEventListener('click', function() {
-            if (closeEditPage(true)) {
-                // اگر ذخیره موفق بود، editTarget قبلاً پاک شده
-            }
+            closeEditPage(true);
         });
 
         // ========== دکمه‌های اصلی ==========
@@ -1312,9 +1333,9 @@
             }, 200);
         });
 
-        console.log('✅ ابزار ترجمه با حفظ موقعیت اسکرول بارگذاری شد.');
+        console.log('✅ ابزار ترجمه با آپلود بهینه و رندر سریع بارگذاری شد.');
     })();
 </script>
 
 </body>
-  </html>
+    </html>
