@@ -154,27 +154,64 @@
             font-size: 10px;
             font-weight: bold;
         }
-        .translation-label {
+        .translation-label-wrapper {
             position: absolute;
             background: white;
             color: #0f172a;
-            padding: 6px 14px;
+            padding: 6px 10px;
             border-radius: 8px;
             font-size: 15px;
             font-weight: 500;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            pointer-events: none;
+            pointer-events: auto;
             transform: translate(8px, -20px);
             border: 1px solid #e2e8f0;
             z-index: 11;
+            display: flex;
+            align-items: center;
+            gap: 6px;
             white-space: normal;
             max-width: 400px;
             word-wrap: break-word;
             line-height: 1.5;
-            transition: opacity 0.15s ease;
+            transition: all 0.2s ease;
         }
-        .translation-label.hidden {
+        /* حالت مخفی کامل باکس (فقط چشم) */
+        .translation-label-wrapper.box-hidden {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 2px;
+        }
+        .translation-text {
+            flex: 1;
+            transition: opacity 0.2s;
+        }
+        .translation-text.text-hidden {
             opacity: 0;
+            pointer-events: none;
+            user-select: none;
+        }
+        .eye-toggle {
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            user-select: none;
+            background: none;
+            border: none;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+        }
+        .translation-label-wrapper.box-hidden .eye-toggle {
+            background: rgba(255,255,255,0.8);
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         }
         .marker-label {
             position: absolute;
@@ -521,7 +558,7 @@
                 height: 250px;
                 max-width: 100%;
             }
-            .translation-label {
+            .translation-label-wrapper {
                 font-size: 13px;
                 max-width: 200px;
             }
@@ -701,6 +738,18 @@
         let touchStartZoom = 1;
         let lastTouchX = 0, lastTouchY = 0;
 
+        // ========== مدیریت تاریخچه برای دکمه برگشت ==========
+        let editStatePushed = false;
+        function handleEditBack(e) {
+            if (editPage.classList.contains('active')) {
+                // فقط کیبورد را ببند و از خروج جلوگیری کن
+                document.activeElement?.blur();
+                // برای جلوگیری از خروج کامل، دوباره state اضافه می‌کنیم
+                window.history.pushState({ edit: true }, '');
+                showToast('برای خروج دکمه لغو را فشار دهید');
+            }
+        }
+
         // ========== کش برای بهینه‌سازی رندر ==========
         const rectCache = new WeakMap();
 
@@ -733,7 +782,7 @@
             img.points = [];
         }
 
-        // ========== رندر کردن همه‌ی عکس‌ها (بهینه‌شده) ==========
+        // ========== رندر کردن همه‌ی عکس‌ها ==========
         function renderAllImages() {
             gallery.innerHTML = '';
             if (images.length === 0) {
@@ -776,7 +825,6 @@
 
             gallery.appendChild(fragment);
 
-            // رندر نقاط با تاخیر (با requestAnimationFrame)
             requestAnimationFrame(() => {
                 images.forEach(img => renderPointsForImage(img));
                 updateCounter();
@@ -788,7 +836,7 @@
             }
         }
 
-        // ========== رندر نقاط یک عکس خاص (بهینه‌شده) ==========
+        // ========== رندر نقاط یک عکس (با پشتیبانی از چشم نمایش/مخفی) ==========
         function renderPointsForImage(img) {
             const wrapper = document.querySelector(`.image-wrapper[data-image-id="${img.id}"]`);
             if (!wrapper) return;
@@ -799,10 +847,9 @@
             }
 
             // پاک کردن المان‌های قدیمی
-            const oldMarkers = wrapper.querySelectorAll('.click-marker, .marker-label, .translation-label');
+            const oldMarkers = wrapper.querySelectorAll('.click-marker, .marker-label, .translation-label-wrapper');
             oldMarkers.forEach(el => el.remove());
 
-            // استفاده از کش برای rect
             let rect = rectCache.get(imgElem);
             if (!rect || rect.width === 0) {
                 rect = imgElem.getBoundingClientRect();
@@ -817,6 +864,7 @@
                 const displayX = p.x / scaleX;
                 const displayY = p.y / scaleY;
 
+                // نشانگر نقطه
                 const marker = document.createElement('div');
                 marker.className = 'click-marker';
                 marker.style.left = displayX + 'px';
@@ -825,6 +873,7 @@
                 fragment.appendChild(marker);
                 p.markerEl = marker;
 
+                // برچسب مختصات
                 const label = document.createElement('div');
                 label.className = 'marker-label';
                 label.textContent = `X:${p.x} Y:${p.y}`;
@@ -833,26 +882,57 @@
                 fragment.appendChild(label);
                 p.labelEl = label;
 
+                // باکس ترجمه با چشم
                 if (p.text) {
-                    const textEl = document.createElement('div');
-                    textEl.className = 'translation-label';
-                    textEl.textContent = p.text;
-                    textEl.style.left = (displayX + 8) + 'px';
-                    textEl.style.top = (displayY - 10) + 'px';
-                    textEl.addEventListener('mouseenter', () => textEl.classList.add('hidden'));
-                    textEl.addEventListener('mouseleave', () => textEl.classList.remove('hidden'));
-                    fragment.appendChild(textEl);
-                    p.textEl = textEl;
+                    const translationWrapper = document.createElement('div');
+                    translationWrapper.className = 'translation-label-wrapper';
+                    translationWrapper.style.left = (displayX + 8) + 'px';
+                    translationWrapper.style.top = (displayY - 10) + 'px';
+
+                    const textSpan = document.createElement('span');
+                    textSpan.className = 'translation-text';
+                    textSpan.textContent = p.text;
+
+                    const eyeBtn = document.createElement('span');
+                    eyeBtn.className = 'eye-toggle';
+                    eyeBtn.innerHTML = p.visible === false ? '👁️‍🗨️' : '👁️';
+                    
+                    // تنظیم وضعیت اولیه باکس
+                    if (p.visible === false) {
+                        translationWrapper.classList.add('box-hidden');
+                        textSpan.classList.add('text-hidden');
+                    }
+
+                    eyeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        // toggle وضعیت
+                        p.visible = !p.visible;
+                        if (p.visible) {
+                            translationWrapper.classList.remove('box-hidden');
+                            textSpan.classList.remove('text-hidden');
+                            eyeBtn.innerHTML = '👁️';
+                        } else {
+                            translationWrapper.classList.add('box-hidden');
+                            textSpan.classList.add('text-hidden');
+                            eyeBtn.innerHTML = '👁️‍🗨️';
+                        }
+                    });
+
+                    translationWrapper.appendChild(textSpan);
+                    translationWrapper.appendChild(eyeBtn);
+                    fragment.appendChild(translationWrapper);
+                    p.textEl = translationWrapper;
+                } else {
+                    p.textEl = null;
                 }
             });
 
             wrapper.appendChild(fragment);
         }
 
-        // ========== آپلود عکس‌ها با ترتیب صحیح (اصلاح‌شده) ==========
+        // ========== آپلود عکس‌ها ==========
         async function addImages(files) {
             const fileArray = Array.from(files);
-            // مرتب‌سازی بر اساس نام برای جلوگیری از بهم ریختگی
             fileArray.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
             for (const file of fileArray) {
@@ -921,11 +1001,10 @@
 
             if (realX < 0 || realY < 0 || realX > imgElem.naturalWidth || realY > imgElem.naturalHeight) return;
 
-            const point = { x: realX, y: realY, text: '', markerEl: null, labelEl: null, textEl: null };
+            const point = { x: realX, y: realY, text: '', markerEl: null, labelEl: null, textEl: null, visible: true };
             img.points.push(point);
             const idx = img.points.length - 1;
 
-            // رندر سریع (با requestAnimationFrame)
             requestAnimationFrame(() => {
                 renderPointsForImage(img);
                 updateCounter();
@@ -946,11 +1025,18 @@
             mainPage.classList.add('hidden');
             editPage.classList.add('active');
 
+            // مدیریت دکمه برگشت
+            if (!editStatePushed) {
+                window.history.pushState({ edit: true }, '');
+                editStatePushed = true;
+                window.addEventListener('popstate', handleEditBack);
+            }
+
             setTimeout(() => editTranslationInput.focus(), 100);
             outputArea.classList.remove('show');
         });
 
-        // ========== بزرگنمایی با زوم و پن (بدون نقطه‌ی قرمز مزاحم) ==========
+        // ========== بزرگنمایی با زوم و پن ==========
         function updateZoomPreview(img, point) {
             const canvas = editZoomCanvas;
             const ctx = canvas.getContext('2d');
@@ -986,7 +1072,6 @@
                 ctx.clearRect(0, 0, ZOOM_SIZE, ZOOM_SIZE);
                 ctx.drawImage(imgElem, srcX, srcY, srcW, srcH, 0, 0, ZOOM_SIZE, ZOOM_SIZE);
 
-                // صلیب خیلی کمرنگ
                 ctx.strokeStyle = 'rgba(255,255,255,0.15)';
                 ctx.lineWidth = 1;
                 ctx.setLineDash([4, 8]);
@@ -1137,6 +1222,7 @@
                 const img = getImageById(editingTarget.imageId);
                 if (img && img.points[editingTarget.pointIndex]) {
                     img.points[editingTarget.pointIndex].text = text;
+                    img.points[editingTarget.pointIndex].visible = true; // پیش‌فرض نمایش
                     requestAnimationFrame(() => {
                         renderPointsForImage(img);
                         updateCounter();
@@ -1157,6 +1243,16 @@
                 }
             }
 
+            // پاکسازی تاریخچه دکمه برگشت
+            if (editStatePushed) {
+                window.removeEventListener('popstate', handleEditBack);
+                editStatePushed = false;
+                // برگردیم به state اصلی (بدون state اضافه)
+                if (window.history.state && window.history.state.edit) {
+                    history.back();
+                }
+            }
+
             editPage.classList.remove('active');
             mainPage.classList.remove('hidden');
             window.scrollTo({ top: savedScrollY, behavior: 'instant' });
@@ -1171,6 +1267,27 @@
 
         editConfirmBtn.addEventListener('click', function() {
             closeEditPage(true);
+        });
+
+        // ========== دابل اینتر برای تأیید سریع ==========
+        let lastEnterTime = 0;
+        editTranslationInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const now = Date.now();
+                if (now - lastEnterTime < 500) {
+                    // دابل اینتر
+                    e.preventDefault();
+                    // حذف خط جدید قبلی
+                    editTranslationInput.value = editTranslationInput.value.replace(/\n+$/, '');
+                    editConfirmBtn.click();
+                } else {
+                    lastEnterTime = now;
+                    // اجازه بده یک خط جدید ایجاد بشه ولی ما نمی‌خوایم توی textarea بمونه
+                    // برای اینکار از ورود \n جلوگیری نمی‌کنیم اما برای دابل چک کردن خوب است
+                }
+            } else {
+                lastEnterTime = 0; // ریست در صورت فشردن کلید دیگر
+            }
         });
 
         // ========== دکمه‌های اصلی ==========
@@ -1276,66 +1393,4 @@
                     const range = document.createRange();
                     range.selectNode(encodedContent);
                     window.getSelection().removeAllRanges();
-                    window.getSelection().addRange(range);
-                    document.execCommand('copy');
-                    window.getSelection().removeAllRanges();
-                    showToast('📋 کپی شد!');
-                });
-        });
-
-        // ========== فلش‌های ناوبری ==========
-        function scrollToImage(index) {
-            const pages = gallery.querySelectorAll('.image-page');
-            if (index < 0 || index >= pages.length) return;
-            pages[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-
-        arrowTop.addEventListener('click', function() {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        });
-
-        arrowBottom.addEventListener('click', function() {
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-        });
-
-        arrowPrev.addEventListener('click', function() {
-            const pages = gallery.querySelectorAll('.image-page');
-            let currentIndex = 0;
-            for (let i = 0; i < pages.length; i++) {
-                const rect = pages[i].getBoundingClientRect();
-                if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
-                    currentIndex = i;
-                    break;
-                }
-            }
-            scrollToImage(currentIndex - 1);
-        });
-
-        arrowNext.addEventListener('click', function() {
-            const pages = gallery.querySelectorAll('.image-page');
-            let currentIndex = pages.length - 1;
-            for (let i = 0; i < pages.length; i++) {
-                const rect = pages[i].getBoundingClientRect();
-                if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
-                    currentIndex = i;
-                    break;
-                }
-            }
-            scrollToImage(currentIndex + 1);
-        });
-
-        // ========== ریسایز ==========
-        let resizeTimer;
-        window.addEventListener('resize', function() {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                images.forEach(img => renderPointsForImage(img));
-            }, 200);
-        });
-
-        console.log('✅ ابزار ترجمه با آپلود بهینه و رندر سریع بارگذاری شد.');
-    })();
-</script>
-
-</body>
-    </html>
+                    window.getS
