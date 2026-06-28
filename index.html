@@ -1393,4 +1393,66 @@
                     const range = document.createRange();
                     range.selectNode(encodedContent);
                     window.getSelection().removeAllRanges();
-                    window.getS
+                    window.getSelection().addRange(range);
+                    document.execCommand('copy');
+                    window.getSelection().removeAllRanges();
+                    showToast('📋 کپی شد!');
+                });
+        });
+
+        // ========== فلش‌های ناوبری ==========
+        function scrollToImage(index) {
+            const pages = gallery.querySelectorAll('.image-page');
+            if (index < 0 || index >= pages.length) return;
+            pages[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        arrowTop.addEventListener('click', function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        arrowBottom.addEventListener('click', function() {
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        });
+
+        arrowPrev.addEventListener('click', function() {
+            const pages = gallery.querySelectorAll('.image-page');
+            let currentIndex = 0;
+            for (let i = 0; i < pages.length; i++) {
+                const rect = pages[i].getBoundingClientRect();
+                if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
+                    currentIndex = i;
+                    break;
+                }
+            }
+            scrollToImage(currentIndex - 1);
+        });
+
+        arrowNext.addEventListener('click', function() {
+            const pages = gallery.querySelectorAll('.image-page');
+            let currentIndex = pages.length - 1;
+            for (let i = 0; i < pages.length; i++) {
+                const rect = pages[i].getBoundingClientRect();
+                if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
+                    currentIndex = i;
+                    break;
+                }
+            }
+            scrollToImage(currentIndex + 1);
+        });
+
+        // ========== ریسایز ==========
+        let resizeTimer;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                images.forEach(img => renderPointsForImage(img));
+            }, 200);
+        });
+
+        console.log('✅ ابزار ترجمه با آپلود بهینه و رندر سریع بارگذاری شد.');
+    })();
+</script>
+
+</body>
+</html>
