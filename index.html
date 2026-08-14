@@ -525,6 +525,56 @@
             background: #cbd5e1;
         }
 
+        /* ========== باکس‌های انتخاب نوع بالن (جدید) ========== */
+        .balloon-type-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 6px 0 2px 0;
+            flex-shrink: 0;
+            padding: 8px 0;
+            border-top: 1px solid #e2e8f0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .balloon-type-btn {
+            padding: 6px 16px;
+            border-radius: 30px;
+            border: 2px solid #cbd5e1;
+            background: #f8fafc;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #1e293b;
+            min-width: 70px;
+            text-align: center;
+            user-select: none;
+        }
+        .balloon-type-btn:hover {
+            border-color: #94a3b8;
+            background: #f1f5f9;
+        }
+        .balloon-type-btn.active {
+            border-color: #3b82f6;
+            background: #dbeafe;
+            color: #1e40af;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+        .balloon-type-btn.default {
+            border-color: #94a3b8;
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .balloon-type-btn.default.active {
+            border-color: #64748b;
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+        .balloon-type-btn .type-icon {
+            margin-left: 4px;
+        }
+
         /* ========== فلش‌های ناوبری ========== */
         #navArrows {
             position: fixed;
@@ -655,6 +705,11 @@
                 height: 28px;
                 font-size: 12px;
             }
+            .balloon-type-btn {
+                font-size: 12px;
+                padding: 4px 12px;
+                min-width: 55px;
+            }
         }
     </style>
 </head>
@@ -711,6 +766,16 @@
         <div class="zoom-level" id="editZoomLevel">🔎 ۱٫۰×</div>
     </div>
     <textarea id="editTranslationInput" placeholder="متن ترجمه شده را بنویسید..."></textarea>
+
+    <!-- ===== انتخاب نوع بالن (جدید) ===== -->
+    <div class="balloon-type-selector" id="balloonTypeSelector">
+        <button class="balloon-type-btn default active" data-type="default" id="typeDefault">📄 عادی</button>
+        <button class="balloon-type-btn" data-type="lrz" id="typeLrz">🌀 لرزش</button>
+        <button class="balloon-type-btn" data-type="fryad" id="typeFryad">📢 فریاد</button>
+        <button class="balloon-type-btn" data-type="fekr" id="typeFekr">💭 فکر</button>
+        <button class="balloon-type-btn" data-type="mostatil" id="typeMostatil">▢ مستطیل</button>
+    </div>
+
     <div class="edit-actions">
         <button class="btn btn-cancel" id="editCancelBtn">لغو</button>
         <button class="btn btn-primary" id="editConfirmBtn">✅ ثبت</button>
@@ -772,6 +837,10 @@
         const editConfirmBtn = document.getElementById('editConfirmBtn');
         const editCancelBtn = document.getElementById('editCancelBtn');
 
+        // المنت‌های انتخاب نوع بالن
+        const balloonTypeSelector = document.getElementById('balloonTypeSelector');
+        const typeButtons = balloonTypeSelector.querySelectorAll('.balloon-type-btn');
+
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const gallery = document.getElementById('imageGallery');
@@ -793,11 +862,11 @@
         const arrowNext = document.getElementById('arrowNext');
 
         let images = [];
-        let editingTarget = null;
+        let editingTarget = null; // { imageId, pointIndex }
         let nextId = 1;
         let savedScrollY = 0;
 
-        // ========== متغیرهای زوم ==========
+        // متغیرهای زوم
         let zoomLevel = 1;
         let panX = 0, panY = 0;
         let isPanning = false;
@@ -810,15 +879,7 @@
         let touchStartZoom = 1;
         let lastTouchX = 0, lastTouchY = 0;
 
-        // ========== مدیریت تاریخچه برای دکمه برگشت ==========
         let editStatePushed = false;
-        function handleEditBack(e) {
-            if (editPage.classList.contains('active')) {
-                document.activeElement?.blur();
-                window.history.pushState({ edit: true }, '');
-                showToast('برای خروج دکمه لغو را فشار دهید');
-            }
-        }
 
         // ========== کش برای بهینه‌سازی رندر ==========
         const rectCache = new WeakMap();
@@ -852,7 +913,7 @@
             img.points = [];
         }
 
-        // ========== تنظیم هوشمند موقعیت باکس ترجمه (با در نظر گرفتن ارتفاع) ==========
+        // ========== تنظیم هوشمند موقعیت باکس ترجمه ==========
         function adjustTranslationBoxPosition(boxElement, wrapper) {
             if (!boxElement || !wrapper) return;
             
@@ -867,17 +928,12 @@
                 let offsetX = 8;
                 let offsetY = -20;
                 
-                // بررسی خروج از سمت راست
                 if (boxRect.right > viewportWidth - 10) {
                     offsetX = -boxWidth - 10;
                 }
-                
-                // بررسی خروج از بالای صفحه
                 if (boxRect.top < 10) {
                     offsetY = 20;
                 }
-                
-                // بررسی خروج از پایین صفحه - مهم برای باکس‌های بلند
                 if (boxRect.bottom > viewportHeight - 10) {
                     offsetY = -boxHeight - 16;
                     if (boxRect.top + offsetY < 10) {
@@ -887,8 +943,6 @@
                         offsetX = -boxWidth - 10;
                     }
                 }
-                
-                // بررسی خروج از چپ
                 if (boxRect.left + offsetX < 5) {
                     offsetX = 8;
                 }
@@ -957,7 +1011,7 @@
             }
         }
 
-        // ========== تابع حذف نقطه ==========
+        // ========== حذف نقطه ==========
         function deletePoint(imageId, pointIndex) {
             const img = getImageById(imageId);
             if (!img || pointIndex < 0 || pointIndex >= img.points.length) return;
@@ -967,7 +1021,7 @@
             showToast('❌ نقطه حذف شد');
         }
 
-        // ========== تابع شروع ویرایش نقطه موجود ==========
+        // ========== شروع ویرایش نقطه موجود ==========
         function startEditPoint(imageId, pointIndex) {
             const img = getImageById(imageId);
             if (!img || pointIndex < 0 || pointIndex >= img.points.length) return;
@@ -981,6 +1035,13 @@
 
             editPointInfo.textContent = `نقطه ${pointIndex+1}  (X: ${point.x}  Y: ${point.y})  -  ${img.name}`;
             editTranslationInput.value = point.text || '';
+            
+            // تنظیم دکمه‌های نوع بالن بر اساس مقدار ذخیره‌شده
+            const currentType = point.balloonType || 'default';
+            typeButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.type === currentType);
+            });
+
             updateZoomPreview(img, point);
             updateZoomDisplay();
 
@@ -997,7 +1058,7 @@
             outputArea.classList.remove('show');
         }
 
-        // ========== رندر نقاط یک عکس (با چیدمان جدید) ==========
+        // ========== رندر نقاط یک عکس ==========
         function renderPointsForImage(img) {
             const wrapper = document.querySelector(`.image-wrapper[data-image-id="${img.id}"]`);
             if (!wrapper) return;
@@ -1043,7 +1104,7 @@
                 fragment.appendChild(label);
                 p.labelEl = label;
 
-                // باکس ترجمه (ساختار جدید)
+                // باکس ترجمه
                 if (p.text) {
                     const translationWrapper = document.createElement('div');
                     translationWrapper.className = 'translation-label-wrapper';
@@ -1051,7 +1112,7 @@
                     translationWrapper.style.top = displayY + 'px';
                     translationWrapper.style.transform = 'translate(8px, -20px)';
 
-                    // ردیف دکمه‌ها (بالا، وسط)
+                    // ردیف دکمه‌ها
                     const actionsRow = document.createElement('div');
                     actionsRow.className = 'translation-actions-row';
 
@@ -1097,7 +1158,7 @@
                     actionsRow.appendChild(eyeBtn);
                     translationWrapper.appendChild(actionsRow);
 
-                    // کانتینر متن (قابل اسکرول)
+                    // کانتینر متن
                     const textContainer = document.createElement('div');
                     textContainer.className = 'translation-text-container';
                     const textSpan = document.createElement('span');
@@ -1106,7 +1167,6 @@
                     textContainer.appendChild(textSpan);
                     translationWrapper.appendChild(textContainer);
 
-                    // تنظیم حالت اولیه visibility
                     if (p.visible === false) {
                         translationWrapper.classList.add('box-hidden');
                         eyeBtn.innerHTML = '👁️‍🗨️';
@@ -1121,7 +1181,6 @@
 
             wrapper.appendChild(fragment);
             
-            // تنظیم موقعیت باکس‌های ترجمه بعد از رندر
             setTimeout(() => {
                 adjustAllTranslationBoxes(wrapper);
             }, 80);
@@ -1197,7 +1256,16 @@
 
             if (realX < 0 || realY < 0 || realX > imgElem.naturalWidth || realY > imgElem.naturalHeight) return;
 
-            const point = { x: realX, y: realY, text: '', markerEl: null, labelEl: null, textEl: null, visible: true };
+            const point = { 
+                x: realX, 
+                y: realY, 
+                text: '', 
+                markerEl: null, 
+                labelEl: null, 
+                textEl: null, 
+                visible: true,
+                balloonType: 'default'  // نوع بالن پیش‌فرض
+            };
             img.points.push(point);
             const idx = img.points.length - 1;
 
@@ -1209,7 +1277,25 @@
             startEditPoint(img.id, idx);
         });
 
-        // ========== بزرگنمایی با زوم و پن ==========
+        // ========== انتخاب نوع بالن (رویداد) ==========
+        typeButtons.forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                // حذف active از همه
+                typeButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                // ذخیره نوع در نقطه در حال ویرایش
+                if (editingTarget) {
+                    const img = getImageById(editingTarget.imageId);
+                    if (img && img.points[editingTarget.pointIndex]) {
+                        img.points[editingTarget.pointIndex].balloonType = this.dataset.type;
+                    }
+                }
+            });
+        });
+
+        // ========== بزرگنمایی با زوم و پن (با دایره قرمز شیشه‌ای) ==========
         function updateZoomPreview(img, point) {
             const canvas = editZoomCanvas;
             const ctx = canvas.getContext('2d');
@@ -1245,16 +1331,56 @@
                 ctx.clearRect(0, 0, ZOOM_SIZE, ZOOM_SIZE);
                 ctx.drawImage(imgElem, srcX, srcY, srcW, srcH, 0, 0, ZOOM_SIZE, ZOOM_SIZE);
 
-                ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-                ctx.lineWidth = 1;
-                ctx.setLineDash([4, 8]);
+                // ===== رسم دایره قرمز شیشه‌ای روی نقطه =====
+                // مختصات نقطه در canvas (مرکز)
+                const cx = ZOOM_SIZE / 2;
+                const cy = ZOOM_SIZE / 2;
+                const radius = 24; // اندازه دایره
+
+                // رنگ قرمز شیشه‌ای (نیمه‌شفاف)
+                ctx.save();
+                ctx.shadowColor = 'rgba(239, 68, 68, 0.5)';
+                ctx.shadowBlur = 20;
                 ctx.beginPath();
-                ctx.moveTo(0, ZOOM_SIZE/2);
-                ctx.lineTo(ZOOM_SIZE, ZOOM_SIZE/2);
-                ctx.moveTo(ZOOM_SIZE/2, 0);
-                ctx.lineTo(ZOOM_SIZE/2, ZOOM_SIZE);
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.9)';
+                ctx.lineWidth = 3;
                 ctx.stroke();
-                ctx.setLineDash([]);
+                // یک حلقه داخلی نازک برای وضوح بیشتر
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.restore();
+
+                // خطوط راهنما (دایره‌های متحدالمرکز نرم)
+                ctx.save();
+                ctx.setLineDash([4, 8]);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.lineWidth = 1;
+                for (let r = 1; r <= 3; r++) {
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, radius * 0.4 * r, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                ctx.restore();
+
+                // خطوط متقاطع (مختصات)
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 6]);
+                ctx.beginPath();
+                ctx.moveTo(0, cy);
+                ctx.lineTo(ZOOM_SIZE, cy);
+                ctx.moveTo(cx, 0);
+                ctx.lineTo(cx, ZOOM_SIZE);
+                ctx.stroke();
+                ctx.restore();
             };
             imgElem.src = img.dataUrl;
         }
@@ -1307,7 +1433,7 @@
             if (isPanning) {
                 isPanning = false;
                 editZoomPreview.style.cursor = 'grab';
-            }
+                }
         });
 
         // ========== رویدادهای لمسی ==========
@@ -1385,6 +1511,14 @@
         });
 
         // ========== دکمه‌های صفحه ویرایش ==========
+        function handleEditBack(e) {
+            if (editPage.classList.contains('active')) {
+                document.activeElement?.blur();
+                window.history.pushState({ edit: true }, '');
+                showToast('برای خروج دکمه لغو را فشار دهید');
+            }
+        }
+
         function closeEditPage(save) {
             if (save && editingTarget) {
                 const text = editTranslationInput.value.trim();
@@ -1394,8 +1528,14 @@
                 }
                 const img = getImageById(editingTarget.imageId);
                 if (img && img.points[editingTarget.pointIndex]) {
-                    img.points[editingTarget.pointIndex].text = text;
-                    img.points[editingTarget.pointIndex].visible = true;
+                    const point = img.points[editingTarget.pointIndex];
+                    point.text = text;
+                    point.visible = true;
+                    // نوع بالن قبلاً هنگام کلیک روی دکمه‌ها ذخیره شده، اما مطمئن میشیم
+                    const activeBtn = balloonTypeSelector.querySelector('.balloon-type-btn.active');
+                    if (activeBtn) {
+                        point.balloonType = activeBtn.dataset.type;
+                    }
                     requestAnimationFrame(() => {
                         renderPointsForImage(img);
                         updateCounter();
@@ -1477,7 +1617,12 @@
                 if (validPoints.length === 0) return;
                 allData.push({
                     imageName: img.name,
-                    points: validPoints.map(p => ({ text: p.text, x: p.x, y: p.y }))
+                    points: validPoints.map(p => ({ 
+                        text: p.text, 
+                        x: p.x, 
+                        y: p.y,
+                        balloonType: p.balloonType || 'default'   // ← نوع بالن به خروجی اضافه شد
+                    }))
                 });
             });
             return allData;
@@ -1630,9 +1775,10 @@
             }, 200);
         });
 
-        console.log('✅ ابزار ترجمه با چیدمان جدید بارگذاری شد.');
+        console.log('✅ ابزار ترجمه با چیدمان جدید و انتخاب نوع بالن بارگذاری شد.');
     })();
 </script>
 
 </body>
-</html>
+</html> 
+           
